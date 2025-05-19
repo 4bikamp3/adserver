@@ -32,7 +32,7 @@ function buildOpenRTBRequest(params) {
           boxingallowed: 1,
           api: [1, 2],
         },
-        bidfloor: 5.75,
+        bidfloor: 2,
         bidfloorcur: 'USD'
       }
     ],

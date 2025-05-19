@@ -29,5 +29,3 @@ npm install express axios xmlbuilder faker uuid
 ## 📌 Notes
 - Replace Adtelligent DSP endpoint with your valid authenticated one if necessary
 - Make sure to test with Postman/cURL before integrating with SSAI/players
-# adserver
-# adserver
