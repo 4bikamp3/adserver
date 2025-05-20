@@ -1,80 +1,70 @@
 const { v4: uuidv4 } = require('uuid');
-const faker = require('faker');
 
 function buildOpenRTBRequest(params) {
   const requestId = uuidv4().replace(/-/g, '').substring(0, 16).toUpperCase();
   const impId = uuidv4().replace(/-/g, '').substring(0, 16).toUpperCase();
 
-  const fallbackIp = faker.internet.ip();
-  const fallbackUa = faker.internet.userAgent();
-  const fallbackLat = parseFloat(faker.address.latitude());
-  const fallbackLon = parseFloat(faker.address.longitude());
-  const fallbackCountry = faker.address.countryCode();
-  const fallbackCity = faker.address.city();
-  const fallbackDeviceMake = faker.company.companyName();
-  const fallbackDeviceModel = faker.commerce.productName();
+  const geo = params.geo || {};
 
   return {
     id: requestId,
-    imp: [
-      {
-        id: impId,
-        video: {
-          mimes: ['video/mp4'],
-          linearity: 1,
-          minduration: 3,
-          maxduration: 300,
-          protocols: [1, 2, 3, 4, 5, 6],
-          w: parseInt(params.w) || 1920,
-          h: parseInt(params.h) || 1080,
-          startdelay: 0,
-          sequence: 1,
-          boxingallowed: 1,
-          api: [1, 2],
-        },
-        bidfloor: 2,
-        bidfloorcur: 'USD'
-      }
-    ],
+    imp: [{
+      id: impId,
+      video: {
+        mimes: ['video/mp4'],
+        linearity: 1,
+        minduration: 3,
+        maxduration: 300,
+        protocols: [1, 2, 3, 4, 5, 6],
+        w: parseInt(params.w) || 1920,
+        h: parseInt(params.h) || 1080,
+        startdelay: 0,
+        sequence: 1,
+        boxingallowed: 1,
+        api: [1, 2]
+      },
+      bidfloor: 5.75,
+      bidfloorcur: 'USD'
+    }],
     app: {
       id: params.sid || 'default_app_id',
-      name: params.app_name || 'Unknown App',
-      bundle: params.app_bundle || 'unknown.bundle',
+      name: params.app_name || 'CTV App',
+      bundle: params.app_bundle || 'com.ctv.app',
       publisher: {
         id: params.sid || 'default_pub_id'
       },
       storeurl: params.app_store_url || ''
     },
     device: {
-      ua: params.ua || fallbackUa,
-      ip: params.ip || fallbackIp,
+      ua: params.ua || '',
+      ip: params.ip || '',
       geo: {
-        lat: parseFloat(params.lat) || fallbackLat,
-        lon: parseFloat(params.lon) || fallbackLon,
-        country: params.country_code || fallbackCountry,
-        city: params.city || fallbackCity
+        lat: geo.lat || 0,
+        lon: geo.lon || 0,
+        country: geo.country || '',
+        region: geo.regionName || '',
+        city: geo.city || '',
+        zip: geo.zip || '',
+        type: 2,
+        accuracy: 5,
+        ipservice: 3
       },
-      os: params.os || 'Unknown OS',
+      os: params.os || 'Android',
+      osv: params.osv || '7.1.2',
       devicetype: 3,
       ifa: params.ifa || uuidv4(),
-      make: params.device_make || fallbackDeviceMake,
-      model: params.device_model || fallbackDeviceModel,
+      carrier: 'Spectrum',
       ext: {
         ifa_type: 'afai'
       }
     },
-    regs: {
-      coppa: 0,
-      ext: {
-        gdpr: parseInt(params.gdpr) || 0,
-        us_privacy: params.us_privacy || ''
-      }
-    },
     user: {
       id: uuidv4().replace(/-/g, ''),
-      ext: {
-        consent: params.consent || ''
-      }
+      ext: {}
+    },
+    regs: {
+      coppa: 0,
+      ext: {}
     },
     at: 1,
     tmax: 1500,
@@ -85,19 +75,19 @@ function buildOpenRTBRequest(params) {
       ext: {
         schain: {
           complete: 1,
-          nodes: [
-            {
-              asi: 'example.com',
-              sid: params.sid || 'default_sid',
-              rid: requestId,
-              hp: 1
-            }
-          ],
+          nodes: [{
+            asi: 'adtelligent.com',
+            sid: params.sid || 'default_sid',
+            rid: requestId,
+            hp: 1
+          }],
           ver: '1.0'
         }
       }
     },
-    ext: {}
+    ext: {
+      vistar: {}
+    }
   };
 }
 

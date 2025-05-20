@@ -1,81 +1,101 @@
 const express = require('express');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 const { buildOpenRTBRequest } = require('./utils/ortbBuilder');
 const { buildVASTResponse } = require('./utils/vastBuilder');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+function logBidEvent(data) {
+  const logDir = path.join(__dirname, 'logs');
+  const logFile = path.join(logDir, 'bid.log');
+
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir);
+  }
+
+  const logEntry = `[${new Date().toISOString()}] ${JSON.stringify(data)}\n`;
+  fs.appendFile(logFile, logEntry, err => {
+    if (err) console.error('Logging error:', err);
+  });
+}
+
 app.get('/api/vast', async (req, res) => {
+  const query = req.query;
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+  const userAgent = req.headers['user-agent'] || '';
+
+  let geoData = {};
   try {
-    const query = req.query;
-    const ortbRequest = buildOpenRTBRequest(query);
+    const geoResp = await axios.get(`https://ipwho.is/${clientIp}`);
+    if (geoResp.data.success) {
+      geoData = {
+        country: geoResp.data.country_code || '',
+        regionName: geoResp.data.region || '',
+        city: geoResp.data.city || '',
+        zip: geoResp.data.postal || '',
+        lat: geoResp.data.latitude,
+        lon: geoResp.data.longitude
+      };
+    }
+  } catch (geoErr) {
+    console.warn('Geo lookup failed:', geoErr.message);
+  }
 
-    // Ambil header penting dari client request
-    const clientHeaders = {
-      'User-Agent': req.get('User-Agent'),
-      'X-Forwarded-For': req.get('X-Forwarded-For') || req.ip
-    };
+  const ortbRequest = buildOpenRTBRequest({ ...query, ip: clientIp, ua: userAgent, geo: geoData });
 
+  let logData = {
+    timestamp: new Date().toISOString(),
+    query: query,
+    ortb: ortbRequest,
+    response: null,
+    status: ''
+  };
+
+  try {
     let dspResponse;
     try {
-      dspResponse = await axios.post('http://940570.ortb.adtelligent.com/bid', ortbRequest, {
+      dspResponse = await axios.post('http://940570.ortb.adtelligent.com/', ortbRequest, {
         headers: {
           'Content-Type': 'application/json',
-          'x-openrtb-version': '2.6',
-          ...clientHeaders // Forward client headers to DSP
+          'x-openrtb-version': '2.6'
         },
-        timeout: 1000
+        timeout: 1000,
+        maxRedirects: 0
       });
-    } catch (err) {
-      console.error('DSP request failed:', err.message);
-      return res.status(200)
-        .set('Content-Type', 'application/xml')
-        .set('X-Ad-Error', 'DSP request failed')
-        .send('<VAST version="3.0"></VAST>');
-    }
 
-    const seatbid = dspResponse.data?.seatbid?.[0]?.bid?.[0];
-    
-    // Hanya membangun VAST jika ada adm
-    let vastXML;
-    if (seatbid?.adm) {
-      // Jika adm sudah VAST, modifikasi versi jika perlu
-      if (seatbid.adm.includes('version="4.0"')) {
-        vastXML = seatbid.adm.replace('version="4.0"', 'version="3.0"');
-      } else if (!seatbid.adm.includes('version="3.0"')) {
-        vastXML = seatbid.adm.replace('<VAST>', '<VAST version="3.0">');
-      } else {
-        vastXML = seatbid.adm;
-      }
-    } else {
-      vastXML = '<VAST version="3.0"></VAST>';
-    }
+      const seatbid = dspResponse.data?.seatbid?.[0]?.bid?.[0];
+      logData.response = seatbid;
 
-    // Set response headers
-    res.set({
-      'Content-Type': 'application/xml',
-      'X-Ad-Request-Id': ortbRequest.id,
-      'X-Ad-Status': seatbid ? 'success' : 'no-bid'
-    });
-
-    // Forward some DSP headers if available
-    if (dspResponse.headers) {
-      const dspHeadersToForward = ['x-advertiser-id', 'x-campaign-id', 'x-creative-id'];
-      dspHeadersToForward.forEach(header => {
-        if (dspResponse.headers[header]) {
-          res.set(header, dspResponse.headers[header]);
+      if (seatbid?.adm) {
+        let adm = seatbid.adm;
+        const price = seatbid.price || 0;
+        if (adm.includes('${AUCTION_PRICE}')) {
+          adm = adm.replace(/\$\{AUCTION_PRICE\}/g, price.toFixed(2));
         }
-      });
-    }
+        logData.status = 'ADM_FOUND';
+        logBidEvent(logData);
+        res.set('Content-Type', 'application/xml');
+        return res.send(adm);
+      }
 
-    res.send(vastXML);
+      logData.status = 'NO_ADM';
+      logBidEvent(logData);
+      const vastXML = buildVASTResponse({});
+      res.set('Content-Type', 'application/xml');
+      return res.send(vastXML);
+    } catch (axiosErr) {
+      logData.status = 'DSP_ERROR';
+      logData.response = { error: axiosErr.message };
+      logBidEvent(logData);
+      res.set('Content-Type', 'application/xml');
+      return res.send('<?xml version="1.0" encoding="UTF-8"?><VAST version="4.0"></VAST>');
+    }
   } catch (err) {
     console.error('Server error:', err);
-    res.status(200)
-      .set('Content-Type', 'application/xml')
-      .set('X-Ad-Error', 'Internal server error')
-      .send('<VAST version="3.0"></VAST>');
+    res.status(500).send('<?xml version="1.0" encoding="UTF-8"?><VAST version="4.0"></VAST>');
   }
 });
 
